@@ -30,7 +30,7 @@
       ],
       "secrets": [
         {
-          "name": "ConnectionStrings__DefaultConnection",
+          "name": "ConnectionStrings__PostgresConnection",
           "valueFrom": "arn:aws:secretsmanager:us-east-1:AWS_ACCOUNT_ID:secret:user-management/db-connection-string-uYVhO8"
         }
       ],
