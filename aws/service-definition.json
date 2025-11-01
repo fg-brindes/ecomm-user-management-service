@@ -1,0 +1,37 @@
+{
+  "serviceName": "ecomm-user-management-service",
+  "cluster": "fg-cluster-ecs",
+  "taskDefinition": "ecomm-user-management-service-task",
+  "desiredCount": 1,
+  "launchType": "FARGATE",
+  "platformVersion": "LATEST",
+  "networkConfiguration": {
+    "awsvpcConfiguration": {
+      "subnets": [
+        "SUBNET_ID_1",
+        "SUBNET_ID_2"
+      ],
+      "securityGroups": [
+        "SECURITY_GROUP_ID"
+      ],
+      "assignPublicIp": "ENABLED"
+    }
+  },
+  "loadBalancers": [
+    {
+      "targetGroupArn": "TARGET_GROUP_ARN",
+      "containerName": "user-management-api",
+      "containerPort": 8080
+    }
+  ],
+  "healthCheckGracePeriodSeconds": 120,
+  "deploymentConfiguration": {
+    "maximumPercent": 200,
+    "minimumHealthyPercent": 100,
+    "deploymentCircuitBreaker": {
+      "enable": true,
+      "rollback": true
+    }
+  },
+  "schedulingStrategy": "REPLICA"
+}
