@@ -31,7 +31,7 @@
       "secrets": [
         {
           "name": "ConnectionStrings__DefaultConnection",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:AWS_ACCOUNT_ID:secret:user-management/db-connection-string"
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:AWS_ACCOUNT_ID:secret:user-management/db-connection-string-uYVhO8"
         }
       ],
       "logConfiguration": {
