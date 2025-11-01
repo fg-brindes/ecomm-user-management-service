@@ -189,16 +189,16 @@ using (var scope = app.Services.CreateScope())
                 logger.LogWarning("Cannot connect to database. Attempting to create it...");
 
                 // Get connection string and connect to postgres database to create our database
-                var connectionString = db.Database.GetConnectionString();
-                if (!string.IsNullOrEmpty(connectionString))
+                var dbConnectionString = db.Database.GetConnectionString();
+                if (!string.IsNullOrEmpty(dbConnectionString))
                 {
-                    var builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
-                    var dbName = builder.Database;
+                    var connStringBuilder = new Npgsql.NpgsqlConnectionStringBuilder(dbConnectionString);
+                    var dbName = connStringBuilder.Database;
 
                     // Connect to postgres database
-                    builder.Database = "postgres";
+                    connStringBuilder.Database = "postgres";
 
-                    using var connection = new Npgsql.NpgsqlConnection(builder.ConnectionString);
+                    using var connection = new Npgsql.NpgsqlConnection(connStringBuilder.ConnectionString);
                     await connection.OpenAsync();
 
                     // Check if database exists
@@ -208,7 +208,7 @@ using (var scope = app.Services.CreateScope())
                     if (exists == null)
                     {
                         logger.LogInformation($"Creating database '{dbName}'...");
-                        using var createCmd = new Npgsql.NpgsqlCommand($"CREATE DATABASE {dbName} OWNER {builder.Username}", connection);
+                        using var createCmd = new Npgsql.NpgsqlCommand($"CREATE DATABASE {dbName} OWNER {connStringBuilder.Username}", connection);
                         await createCmd.ExecuteNonQueryAsync();
                         logger.LogInformation($"✅ Database '{dbName}' created successfully");
                     }
