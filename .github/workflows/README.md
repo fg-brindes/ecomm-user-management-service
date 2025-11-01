@@ -38,19 +38,37 @@ Automated deployment workflow that builds, tests, and deploys the application to
 1. **Checkout code** - Clones the repository
 2. **Configure AWS credentials** - Sets up AWS CLI access
 3. **Login to Amazon ECR** - Authenticates to container registry
-4. **Extract git metadata** - Gets commit SHA, branch, timestamp
-5. **Build Docker image** - Creates production container image
-6. **Scan image for vulnerabilities** - Trivy security scan (CRITICAL/HIGH)
-7. **Push image to Amazon ECR** - Uploads with SHA and `latest` tags
-8. **Check if ECS infrastructure exists** - Validates all AWS resources exist
-9. **Download task definition** - Gets current ECS task configuration
-10. **Update task definition with new image** - Injects new Docker image reference
-11. **Deploy to Amazon ECS** - Deploys with rollback on failure enabled
-12. **Verify deployment** - Health check with retries (5 attempts)
-13. **Create deployment summary** - GitHub Actions summary with details
-14. **Notify deployment status** - Alerts on failure
+4. **Create ECR repository if it doesn't exist** - Auto-creates ECR repo if missing
+5. **Extract git metadata** - Gets commit SHA, branch, timestamp
+6. **Build Docker image** - Creates production container image
+7. **Scan image for vulnerabilities** - Trivy security scan (CRITICAL/HIGH)
+8. **Push image to Amazon ECR** - Uploads with SHA and `latest` tags
+9. **Check if ECS infrastructure exists** - Validates all AWS resources exist
+10. **Download task definition** - Gets current ECS task configuration
+11. **Update task definition with new image** - Injects new Docker image reference
+12. **Deploy to Amazon ECS** - Deploys with rollback on failure enabled
+13. **Verify deployment** - Health check with retries (5 attempts)
+14. **Create deployment summary** - GitHub Actions summary with details
+15. **Notify deployment status** - Alerts on failure
 
 ### Common Issues and Solutions
+
+#### ❌ "The repository with name 'ecomm-user-management-service' does not exist in the registry"
+
+**Cause**: ECR repository doesn't exist in your AWS account.
+
+**Solution**: The workflow now automatically creates the ECR repository if it doesn't exist. This step runs after ECR login and before building the Docker image.
+
+If you prefer to create it manually:
+```bash
+aws ecr create-repository \
+  --repository-name ecomm-user-management-service \
+  --region us-east-1 \
+  --image-scanning-configuration scanOnPush=true \
+  --encryption-configuration encryptionType=AES256
+```
+
+**Note**: This is now handled automatically by the workflow, so you don't need to worry about it.
 
 #### ❌ "ECS Cluster not found or not active"
 
