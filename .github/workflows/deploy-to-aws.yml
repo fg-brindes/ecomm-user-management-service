@@ -1,5 +1,22 @@
 name: Deploy to AWS ECS
 
+# This workflow builds and deploys the User Management Service to AWS ECS
+#
+# Prerequisites:
+# - AWS infrastructure must be created first using: cd aws && ./create-service.sh
+# - Required GitHub Secrets:
+#   - AWS_ACCESS_KEY_ID
+#   - AWS_SECRET_ACCESS_KEY
+#   - AWS_REGION (optional, defaults to us-east-1)
+#
+# The workflow:
+# 1. Builds a Docker image
+# 2. Scans for vulnerabilities with Trivy
+# 3. Pushes to AWS ECR
+# 4. Updates ECS task definition with new image
+# 5. Deploys to ECS with rollback on failure
+# 6. Verifies deployment health
+
 on:
   push:
     branches:
@@ -78,11 +95,55 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
+      - name: Check if ECS infrastructure exists
+        id: check-infra
+        run: |
+          # Check if ECS cluster exists
+          CLUSTER_EXISTS=$(aws ecs describe-clusters \
+            --clusters ${{ env.ECS_CLUSTER }} \
+            --query 'clusters[?status==`ACTIVE`].clusterName' \
+            --output text)
+
+          if [ -z "$CLUSTER_EXISTS" ]; then
+            echo "❌ ECS Cluster '${{ env.ECS_CLUSTER }}' not found or not active"
+            echo "Please create the infrastructure first using: cd aws && ./create-service.sh"
+            exit 1
+          fi
+
+          # Check if task definition exists
+          TASK_DEF_EXISTS=$(aws ecs describe-task-definition \
+            --task-definition ecomm-user-management-service-task \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text 2>/dev/null || echo "")
+
+          if [ -z "$TASK_DEF_EXISTS" ]; then
+            echo "❌ Task definition 'ecomm-user-management-service-task' not found"
+            echo "Please create the infrastructure first using: cd aws && ./create-service.sh"
+            exit 1
+          fi
+
+          # Check if service exists
+          SERVICE_EXISTS=$(aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.ECS_SERVICE }} \
+            --query 'services[?status==`ACTIVE`].serviceName' \
+            --output text 2>/dev/null || echo "")
+
+          if [ -z "$SERVICE_EXISTS" ]; then
+            echo "❌ ECS Service '${{ env.ECS_SERVICE }}' not found or not active"
+            echo "Please create the infrastructure first using: cd aws && ./create-service.sh"
+            exit 1
+          fi
+
+          echo "✅ All infrastructure components found"
+          echo "cluster_exists=true" >> $GITHUB_OUTPUT
+
       - name: Download task definition
         run: |
           aws ecs describe-task-definition \
             --task-definition ecomm-user-management-service-task \
-            --query taskDefinition > task-definition.json
+            --query 'taskDefinition | {family: family, networkMode: networkMode, requiresCompatibilities: requiresCompatibilities, cpu: cpu, memory: memory, executionRoleArn: executionRoleArn, taskRoleArn: taskRoleArn, containerDefinitions: containerDefinitions}' \
+            > task-definition.json
 
       - name: Update task definition with new image
         id: task-def
@@ -102,26 +163,50 @@ jobs:
 
       - name: Verify deployment
         run: |
-          # Get ALB DNS name
+          # Get ALB DNS name (if exists)
           ALB_DNS=$(aws elbv2 describe-load-balancers \
             --names user-management-alb \
             --query 'LoadBalancers[0].DNSName' \
-            --output text)
+            --output text 2>/dev/null || echo "")
+
+          if [ -z "$ALB_DNS" ] || [ "$ALB_DNS" == "None" ]; then
+            echo "⚠️  ALB not found. Skipping health check verification."
+            echo "Note: If this is the first deployment, run aws/create-service.sh first."
+            exit 0
+          fi
 
           echo "ALB DNS: $ALB_DNS"
 
-          # Wait for health check
-          sleep 30
+          # Wait for service to stabilize
+          echo "Waiting for ECS service to stabilize..."
+          sleep 60
 
-          # Check health endpoint
-          HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://$ALB_DNS/health || echo "000")
+          # Check health endpoint with retries
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+          HEALTH_STATUS="000"
 
-          if [ "$HEALTH_STATUS" == "200" ]; then
-            echo "✅ Deployment verified - Health check passed"
-          else
-            echo "⚠️  Health check returned status: $HEALTH_STATUS"
-            echo "Service may still be starting up. Check CloudWatch logs."
-          fi
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$HEALTH_STATUS" != "200" ]; do
+            HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://$ALB_DNS/health 2>/dev/null || echo "000")
+
+            if [ "$HEALTH_STATUS" == "200" ]; then
+              echo "✅ Deployment verified - Health check passed"
+              exit 0
+            fi
+
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            echo "Attempt $RETRY_COUNT/$MAX_RETRIES - Health check returned status: $HEALTH_STATUS"
+
+            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+              echo "Waiting 15 seconds before retry..."
+              sleep 15
+            fi
+          done
+
+          echo "⚠️  Health check did not return 200 after $MAX_RETRIES attempts"
+          echo "Final status: $HEALTH_STATUS"
+          echo "Service may still be starting up. Check CloudWatch logs and ECS console."
+          echo "This is not considered a failure - deployment has been completed."
 
       - name: Create deployment summary
         if: always()
