@@ -178,6 +178,47 @@ using (var scope = app.Services.CreateScope())
     {
         if (isProduction)
         {
+            logger.LogInformation("Checking database existence...");
+
+            // Try to ensure database exists (PostgreSQL will auto-create if connection is to postgres db)
+            // This is a workaround for RDS without public access
+            var canConnect = await db.Database.CanConnectAsync();
+
+            if (!canConnect)
+            {
+                logger.LogWarning("Cannot connect to database. Attempting to create it...");
+
+                // Get connection string and connect to postgres database to create our database
+                var connectionString = db.Database.GetConnectionString();
+                if (!string.IsNullOrEmpty(connectionString))
+                {
+                    var builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
+                    var dbName = builder.Database;
+
+                    // Connect to postgres database
+                    builder.Database = "postgres";
+
+                    using var connection = new Npgsql.NpgsqlConnection(builder.ConnectionString);
+                    await connection.OpenAsync();
+
+                    // Check if database exists
+                    using var checkCmd = new Npgsql.NpgsqlCommand($"SELECT 1 FROM pg_database WHERE datname='{dbName}'", connection);
+                    var exists = await checkCmd.ExecuteScalarAsync();
+
+                    if (exists == null)
+                    {
+                        logger.LogInformation($"Creating database '{dbName}'...");
+                        using var createCmd = new Npgsql.NpgsqlCommand($"CREATE DATABASE {dbName} OWNER {builder.Username}", connection);
+                        await createCmd.ExecuteNonQueryAsync();
+                        logger.LogInformation($"✅ Database '{dbName}' created successfully");
+                    }
+                    else
+                    {
+                        logger.LogInformation($"Database '{dbName}' already exists");
+                    }
+                }
+            }
+
             logger.LogInformation("Applying database migrations...");
             db.Database.Migrate();
             logger.LogInformation("✅ Database migrations applied successfully");
